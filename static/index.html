@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>焦点堆叠批量处理工具</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101214;
+      --panel: #181b1f;
+      --panel-2: #20242a;
+      --border: #343a42;
+      --text: #f5f7f8;
+      --muted: #9da7b2;
+      --lime: #d8f15a;
+      --cyan: #62c8d8;
+      --amber: #f2ba66;
+      --red: #ff7c73;
+      --green: #72d59a;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+      letter-spacing: 0;
+    }
+
+    button, input, select { font: inherit; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+
+    header {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: #14171a;
+    }
+
+    h1 { margin: 0; font-size: 20px; font-weight: 760; }
+    .subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+    .runtime { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .status-chip {
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--panel-2);
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .status-chip.ok { border-color: #365e47; color: var(--green); }
+    .status-chip.warn { border-color: #6a5432; color: var(--amber); }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+      min-height: calc(100vh - 68px);
+    }
+
+    .controls {
+      padding: 22px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      overflow-y: auto;
+    }
+
+    .workspace { padding: 22px 26px 30px; overflow: auto; }
+    .section + .section { margin-top: 24px; }
+    .section-title {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    label { display: block; margin-bottom: 7px; color: #d8dde1; font-size: 12px; }
+    .field + .field { margin-top: 14px; }
+    input[type="text"], input[type="number"], select {
+      width: 100%;
+      min-height: 40px;
+      padding: 9px 11px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      outline: none;
+      background: #111417;
+      color: var(--text);
+    }
+    input:focus, select:focus { border-color: var(--cyan); }
+    .hint { margin-top: 6px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      min-height: 34px;
+      margin: 0;
+      color: #d8dde1;
+      font-size: 12px;
+    }
+    .check-row input { width: 16px; height: 16px; accent-color: var(--lime); }
+
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .button {
+      min-height: 42px;
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-weight: 700;
+    }
+    .button:hover:not(:disabled) { border-color: #66717d; }
+    .button.primary { border-color: var(--lime); background: var(--lime); color: #111408; }
+    .button.primary:hover:not(:disabled) { background: #e5fa78; }
+    .button.full { width: 100%; }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(110px, 1fr));
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .metric { padding: 14px; border-bottom: 2px solid var(--border); background: var(--panel); }
+    .metric-value { font-size: 24px; font-weight: 760; }
+    .metric-label { margin-top: 4px; color: var(--muted); font-size: 11px; }
+
+    .empty {
+      min-height: 250px;
+      display: grid;
+      place-items: center;
+      padding: 30px;
+      border: 1px dashed var(--border);
+      border-radius: 6px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.7;
+    }
+
+    .groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+    .group {
+      min-width: 0;
+      padding: 13px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+    }
+    .group-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .group-name { font-size: 13px; font-weight: 700; }
+    .group-count { color: var(--cyan); font-size: 11px; }
+    .file-list { margin-top: 10px; color: var(--muted); font-size: 11px; line-height: 1.65; word-break: break-all; }
+    .file-more { color: var(--amber); }
+
+    .progress-panel {
+      display: none;
+      margin-top: 18px;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+    }
+    .progress-panel.visible { display: block; }
+    .progress-head { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+    .progress-track { height: 8px; margin-top: 12px; overflow: hidden; background: #0e1012; border-radius: 4px; }
+    .progress-bar { width: 0; height: 100%; background: var(--lime); transition: width .25s ease; }
+    .progress-message { margin-top: 10px; color: var(--muted); font-size: 12px; }
+    .result { margin-top: 12px; color: var(--green); font-size: 12px; line-height: 1.6; }
+    .error { color: var(--red); }
+
+    .toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      max-width: min(420px, calc(100vw - 40px));
+      padding: 11px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: #242930;
+      box-shadow: 0 12px 34px rgba(0,0,0,.35);
+      color: var(--text);
+      font-size: 12px;
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: .2s ease;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.error { border-color: #70413e; }
+
+    @media (max-width: 820px) {
+      header { align-items: flex-start; padding: 14px 16px; }
+      main { display: block; }
+      .controls { border-right: 0; border-bottom: 1px solid var(--border); padding: 18px 16px; }
+      .workspace { padding: 18px 16px 28px; }
+      .summary { grid-template-columns: repeat(3, 1fr); }
+      .metric { padding: 11px; }
+      .metric-value { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>焦点堆叠批量处理工具</h1>
+      <div class="subtitle">本机处理，不上传图片</div>
+    </div>
+    <div class="runtime" id="runtime">
+      <span class="status-chip">正在检查组件</span>
+    </div>
+  </header>
+
+  <main>
+    <aside class="controls">
+      <section class="section">
+        <h2 class="section-title">文件夹</h2>
+        <div class="field">
+          <label for="inputFolder">输入文件夹路径</label>
+          <input id="inputFolder" type="text" autocomplete="off" placeholder="例如：D:\\产品照片\\待处理">
+          <div class="hint">复制资源管理器地址栏中的完整路径并粘贴。</div>
+        </div>
+        <div class="field">
+          <label for="outputFolder">输出文件夹路径</label>
+          <input id="outputFolder" type="text" autocomplete="off" placeholder="留空则在输入文件夹内创建“输出”">
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">处理设置</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label for="groupSize">每组最多张数</label>
+            <input id="groupSize" type="number" min="1" max="100" value="10">
+          </div>
+          <div class="field">
+            <label for="format">输出格式</label>
+            <select id="format">
+              <option value="jpg">JPG</option>
+              <option value="png">PNG</option>
+              <option value="tif">TIF</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="quality">JPG 质量</label>
+          <input id="quality" type="number" min="60" max="100" value="95">
+        </div>
+        <div class="field">
+          <label class="check-row"><input id="lensCorrection" type="checkbox" checked> 启用镜头畸变矫正</label>
+          <label class="check-row"><input id="caCorrection" type="checkbox" checked> 启用色差矫正</label>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="actions">
+          <button class="button" id="scanButton" type="button">预览分组</button>
+          <button class="button primary" id="processButton" type="button">开始处理</button>
+        </div>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <div class="summary">
+        <div class="metric"><div class="metric-value" id="imageCount">0</div><div class="metric-label">图片总数</div></div>
+        <div class="metric"><div class="metric-value" id="groupCount">0</div><div class="metric-label">处理组数</div></div>
+        <div class="metric"><div class="metric-value" id="averageCount">0</div><div class="metric-label">平均每组</div></div>
+      </div>
+
+      <div id="groupArea" class="empty">输入图片文件夹后点击“预览分组”。<br>确认每组照片正确，再开始批量处理。</div>
+
+      <div class="progress-panel" id="progressPanel">
+        <div class="progress-head"><strong id="progressStage">准备中</strong><span id="progressValue">0%</span></div>
+        <div class="progress-track"><div class="progress-bar" id="progressBar"></div></div>
+        <div class="progress-message" id="progressMessage"></div>
+        <div class="result" id="result"></div>
+        <button class="button full" id="openFolderButton" type="button" style="display:none;margin-top:12px;">打开输出文件夹</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let currentOutputFolder = '';
+    let pollTimer = null;
+
+    function showToast(message, isError = false) {
+      const toast = $('toast');
+      toast.textContent = message;
+      toast.classList.toggle('error', isError);
+      toast.classList.add('show');
+      window.setTimeout(() => toast.classList.remove('show'), 3200);
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || `请求失败 (${response.status})`);
+      return body;
+    }
+
+    function settings() {
+      return {
+        input_folder: $('inputFolder').value.trim(),
+        output_folder: $('outputFolder').value.trim(),
+        group_size: Number($('groupSize').value),
+        output_format: $('format').value,
+        quality: Number($('quality').value),
+        lens_correction: $('lensCorrection').checked,
+        ca_correction: $('caCorrection').checked,
+      };
+    }
+
+    function setBusy(busy) {
+      $('scanButton').disabled = busy;
+      $('processButton').disabled = busy;
+    }
+
+    function renderGroups(data) {
+      $('imageCount').textContent = data.total_images;
+      $('groupCount').textContent = data.total_groups;
+      $('averageCount').textContent = data.total_groups ? (data.total_images / data.total_groups).toFixed(1) : '0';
+      const area = $('groupArea');
+      area.className = 'groups';
+      area.innerHTML = '';
+      data.groups.forEach((group) => {
+        const box = document.createElement('article');
+        box.className = 'group';
+        const visible = group.files.slice(0, 6);
+        const remaining = group.files.length - visible.length;
+        const fileText = visible.map((name) => `<div>${escapeHtml(name)}</div>`).join('');
+        box.innerHTML = `
+          <div class="group-head">
+            <span class="group-name">第 ${group.group_id} 组</span>
+            <span class="group-count">${group.count} 张</span>
+          </div>
+          <div class="file-list">${fileText}${remaining > 0 ? `<div class="file-more">另有 ${remaining} 张</div>` : ''}</div>`;
+        area.appendChild(box);
+      });
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>'"]/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      })[char]);
+    }
+
+    async function scan() {
+      const input = settings();
+      if (!input.input_folder) return showToast('请先填写输入文件夹路径', true);
+      setBusy(true);
+      try {
+        const data = await api('/api/scan', {
+          method: 'POST',
+          body: JSON.stringify({ folder: input.input_folder, group_size: input.group_size }),
+        });
+        renderGroups(data);
+        showToast(`已识别 ${data.total_images} 张图片，共 ${data.total_groups} 组`);
+      } catch (error) {
+        showToast(error.message, true);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function processImages() {
+      const input = settings();
+      if (!input.input_folder) return showToast('请先填写输入文件夹路径', true);
+      setBusy(true);
+      $('progressPanel').classList.add('visible');
+      $('result').textContent = '';
+      $('result').classList.remove('error');
+      $('openFolderButton').style.display = 'none';
+      try {
+        const data = await api('/api/process', { method: 'POST', body: JSON.stringify(input) });
+        currentOutputFolder = data.output_folder;
+        pollStatus(data.task_id);
+      } catch (error) {
+        setBusy(false);
+        showToast(error.message, true);
+      }
+    }
+
+    async function pollStatus(taskId) {
+      window.clearTimeout(pollTimer);
+      try {
+        const data = await api(`/api/status/${encodeURIComponent(taskId)}`);
+        const progress = Math.max(0, Math.min(100, Number(data.progress) || 0));
+        $('progressStage').textContent = data.stage || '处理中';
+        $('progressValue').textContent = `${progress}%`;
+        $('progressBar').style.width = `${progress}%`;
+        $('progressMessage').textContent = data.message || '';
+        if (data.status === 'done') {
+          const result = data.result || {};
+          $('result').textContent = `处理完成：成功 ${result.success || 0} 组，失败 ${result.failed || 0} 组。`;
+          $('openFolderButton').style.display = 'block';
+          setBusy(false);
+          showToast('批量处理完成');
+          return;
+        }
+        if (data.status === 'error') {
+          $('result').textContent = `处理失败：${data.message || '未知错误'}`;
+          $('result').classList.add('error');
+          setBusy(false);
+          showToast('处理失败，请查看页面提示', true);
+          return;
+        }
+        pollTimer = window.setTimeout(() => pollStatus(taskId), 800);
+      } catch (error) {
+        $('result').textContent = `无法读取任务状态：${error.message}`;
+        $('result').classList.add('error');
+        setBusy(false);
+      }
+    }
+
+    async function loadLibraries() {
+      try {
+        const data = await api('/api/libs');
+        $('runtime').innerHTML = `
+          <span class="status-chip ${data.has_rawpy ? 'ok' : 'warn'}">RAF ${data.has_rawpy ? '可用' : '未安装'}</span>
+          <span class="status-chip ${data.has_lensfun ? 'ok' : 'warn'}">镜头数据库 ${data.has_lensfun ? '可用' : '未安装'}</span>`;
+      } catch (error) {
+        $('runtime').innerHTML = '<span class="status-chip warn">组件状态不可用</span>';
+      }
+    }
+
+    $('scanButton').addEventListener('click', scan);
+    $('processButton').addEventListener('click', processImages);
+    $('openFolderButton').addEventListener('click', async () => {
+      try {
+        await api('/api/open_folder', { method: 'POST', body: JSON.stringify({ folder: currentOutputFolder }) });
+      } catch (error) {
+        showToast(error.message, true);
+      }
+    });
+    loadLibraries();
+  </script>
+</body>
+</html>
