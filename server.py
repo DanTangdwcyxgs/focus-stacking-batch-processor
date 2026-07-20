@@ -1,5 +1,9 @@
-from flask import Flask, request, jsonify, send_from_directory
-import os, threading, uuid
+from flask import Flask, jsonify, request, send_from_directory
+import os
+import platform
+import subprocess
+import threading
+import uuid
 from pathlib import Path
 import sys
 
@@ -8,8 +12,31 @@ from focus_stack_engine import process_batch, group_images_by_sequence, ALL_EXTS
 
 app = Flask(__name__, static_folder='static')
 tasks = {}
+tasks_lock = threading.Lock()
 STATIC_DIR = os.path.join(os.path.dirname(__file__), 'static')
 os.makedirs(STATIC_DIR, exist_ok=True)
+
+
+def _json_body():
+    return request.get_json(silent=True) or {}
+
+
+def _integer_option(data, name, default, minimum, maximum):
+    try:
+        value = int(data.get(name, default))
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} 必须是整数")
+    if not minimum <= value <= maximum:
+        raise ValueError(f"{name} 必须在 {minimum} 到 {maximum} 之间")
+    return value
+
+
+@app.after_request
+def local_security_headers(response):
+    response.headers['Cache-Control'] = 'no-store'
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    return response
 
 
 @app.route('/')
@@ -32,9 +59,12 @@ def get_libs():
 
 @app.route('/api/scan', methods=['POST'])
 def scan_folder():
-    data = request.json
+    data = _json_body()
     folder = data.get('folder', '').strip()
-    group_size = int(data.get('group_size', 10))
+    try:
+        group_size = _integer_option(data, 'group_size', 10, 1, 100)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     if not folder or not os.path.isdir(folder):
         return jsonify({"error": f"文件夹不存在: {folder}"}), 400
     image_files = [str(f) for f in Path(folder).iterdir() if f.suffix.lower() in ALL_EXTS]
@@ -51,14 +81,19 @@ def scan_folder():
 
 @app.route('/api/process', methods=['POST'])
 def start_processing():
-    data = request.json
+    data = _json_body()
     input_folder  = data.get('input_folder', '').strip()
     output_folder = data.get('output_folder', '').strip()
-    group_size    = int(data.get('group_size', 10))
     output_format = data.get('output_format', 'jpg').lower()
-    quality       = int(data.get('quality', 95))
-    lens_correction = data.get('lens_correction', True)
-    ca_correction   = data.get('ca_correction', True)
+    try:
+        group_size = _integer_option(data, 'group_size', 10, 1, 100)
+        quality = _integer_option(data, 'quality', 95, 60, 100)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if output_format not in {'jpg', 'png', 'tif'}:
+        return jsonify({"error": "输出格式只支持 JPG、PNG 或 TIF"}), 400
+    lens_correction = bool(data.get('lens_correction', True))
+    ca_correction   = bool(data.get('ca_correction', True))
     camera_name   = data.get('camera_name', '').strip() or None
     lens_name     = data.get('lens_name', '').strip() or None
 
@@ -68,13 +103,15 @@ def start_processing():
         output_folder = os.path.join(input_folder, '输出')
 
     task_id = str(uuid.uuid4())[:8]
-    tasks[task_id] = {"status": "running", "stage": "starting",
-                      "message": "准备开始...", "progress": 0,
-                      "result": None, "output_folder": output_folder}
+    with tasks_lock:
+        tasks[task_id] = {"status": "running", "stage": "starting",
+                          "message": "准备开始...", "progress": 0,
+                          "result": None, "output_folder": output_folder}
 
     def run_task():
         def cb(stage, message, pct):
-            tasks[task_id].update({"stage": stage, "message": message, "progress": pct})
+            with tasks_lock:
+                tasks[task_id].update({"stage": stage, "message": message, "progress": pct})
         try:
             result = process_batch(
                 input_folder=input_folder, output_folder=output_folder,
@@ -83,9 +120,11 @@ def start_processing():
                 camera_name=camera_name, lens_name=lens_name,
                 progress_callback=cb
             )
-            tasks[task_id].update({"status": "done", "progress": 100, "result": result})
+            with tasks_lock:
+                tasks[task_id].update({"status": "done", "progress": 100, "result": result})
         except Exception as e:
-            tasks[task_id].update({"status": "error", "message": str(e)})
+            with tasks_lock:
+                tasks[task_id].update({"status": "error", "message": str(e)})
 
     t = threading.Thread(target=run_task)
     t.daemon = True
@@ -95,17 +134,18 @@ def start_processing():
 
 @app.route('/api/status/<task_id>')
 def get_status(task_id):
-    if task_id not in tasks:
-        return jsonify({"error": "任务不存在"}), 404
-    return jsonify(tasks[task_id])
+    with tasks_lock:
+        task = tasks.get(task_id)
+        if task is None:
+            return jsonify({"error": "任务不存在"}), 404
+        return jsonify(task.copy())
 
 
 @app.route('/api/open_folder', methods=['POST'])
 def open_folder():
-    data = request.json
+    data = _json_body()
     folder = data.get('folder', '')
     if os.path.isdir(folder):
-        import subprocess, platform
         system = platform.system()
         if system == 'Darwin':   subprocess.Popen(['open', folder])
         elif system == 'Windows': subprocess.Popen(['explorer', folder])
@@ -117,6 +157,6 @@ def open_folder():
 if __name__ == '__main__':
     print("=" * 50)
     print("  焦点堆叠批量处理工具 v4")
-    print("  请在浏览器中访问: http://localhost:5050")
+    print("  请在浏览器中访问: http://127.0.0.1:5050")
     print("=" * 50)
-    app.run(host='0.0.0.0', port=5050, debug=False)
+    app.run(host='127.0.0.1', port=5050, debug=False)

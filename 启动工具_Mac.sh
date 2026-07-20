@@ -27,11 +27,11 @@ fi
 echo "✅ 依赖检查完成"
 echo ""
 echo "🚀 启动服务..."
-echo "🌐 请在浏览器中访问: http://localhost:5050"
+echo "🌐 请在浏览器中访问: http://127.0.0.1:5050"
 echo ""
 
 # 自动打开浏览器 (Mac)
 sleep 1.5
-open "http://localhost:5050" 2>/dev/null &
+open "http://127.0.0.1:5050" 2>/dev/null &
 
 python3 server.py
